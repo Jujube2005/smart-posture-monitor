@@ -30,11 +30,13 @@ type Statistics = {
 };
 
 type SensorReading = Pick<PostureData, "id" | "ax" | "ay" | "az" | "created_at">;
+type HistoryStatus = "loading" | "ready" | "error";
 
 export default function Home() {
   const [latest, setLatest] = useState<PostureData | null>(null);
   const [sensorReadings, setSensorReadings] = useState<SensorReading[]>([]);
   const [postureHistory, setPostureHistory] = useState<PostureData[]>([]);
+  const [historyStatus, setHistoryStatus] = useState<HistoryStatus>("loading");
 
   const [statistics, setStatistics] = useState<Statistics>({
     straight: 0,
@@ -79,9 +81,7 @@ export default function Home() {
           return records;
         }
 
-        return [newRecord, ...records]
-          .sort((first, second) => new Date(second.created_at).getTime() - new Date(first.created_at).getTime())
-          .slice(0, 20);
+        return mergePostureHistory(records, [newRecord]);
       });
       setError("");
     } catch (err) {
@@ -90,13 +90,37 @@ export default function Home() {
     }
   }
 
+  async function loadHistory() {
+    try {
+      const response = await fetch("/api/posture/history", { cache: "no-store" });
+
+      if (!response.ok) {
+        throw new Error("History API request failed");
+      }
+
+      const result = await response.json();
+
+      if (!result.success || !Array.isArray(result.history)) {
+        throw new Error(result.message || "History API returned an error");
+      }
+
+      setPostureHistory((records) => mergePostureHistory(records, result.history as PostureData[]));
+      setHistoryStatus("ready");
+    } catch (err) {
+      console.error(err);
+      setHistoryStatus("error");
+    }
+  }
+
   useEffect(() => {
     const initialLoad = window.setTimeout(loadData, 0);
+    const initialHistoryLoad = window.setTimeout(loadHistory, 0);
 
     const interval = setInterval(loadData, 2000);
 
     return () => {
       clearTimeout(initialLoad);
+      clearTimeout(initialHistoryLoad);
       clearInterval(interval);
     };
   }, []);
@@ -279,11 +303,22 @@ export default function Home() {
         <section className="mb-8">
           <SectionHeading title="Posture History" subtitle="20 รายการล่าสุดจากเซ็นเซอร์" />
           <div className="overflow-hidden rounded-3xl border border-[#dbe7f3] bg-white shadow-[0_8px_24px_rgba(24,79,135,0.06)]">
-            {postureHistory.length === 0 ? (
+            {historyStatus === "loading" ? (
               <div className="flex min-h-40 flex-col items-center justify-center px-6 py-10 text-center">
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#edf5ff] text-[#2675d9]"><PostureIcon className="h-5 w-5" /></div>
                 <p className="mt-3 text-sm font-semibold text-[#102a43]">Waiting for posture records</p>
                 <p className="mt-1 text-xs font-medium text-[#8191a5]">ข้อมูลจะแสดงเมื่อเซ็นเซอร์ส่งค่าใหม่</p>
+              </div>
+            ) : historyStatus === "error" ? (
+              <div className="flex min-h-40 flex-col items-center justify-center px-6 py-10 text-center">
+                <p className="text-sm font-semibold text-[#102a43]">Unable to load posture history</p>
+                <p className="mt-1 text-xs font-medium text-[#8191a5]">โปรดลองใหม่อีกครั้งในภายหลัง</p>
+              </div>
+            ) : postureHistory.length === 0 ? (
+              <div className="flex min-h-40 flex-col items-center justify-center px-6 py-10 text-center">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#edf5ff] text-[#2675d9]"><PostureIcon className="h-5 w-5" /></div>
+                <p className="mt-3 text-sm font-semibold text-[#102a43]">No posture records yet</p>
+                <p className="mt-1 text-xs font-medium text-[#8191a5]">ยังไม่มีข้อมูลในประวัติท่าทาง</p>
               </div>
             ) : (
               <div className="max-h-[360px] overflow-y-auto">
@@ -366,6 +401,18 @@ function SensorCard({
       <p className="mt-1 text-xs font-medium text-[#8191a5]">Acceleration (g)</p>
     </div>
   );
+}
+
+function mergePostureHistory(current: PostureData[], incoming: PostureData[]) {
+  const uniqueRecords = new Map<number, PostureData>();
+
+  for (const record of [...current, ...incoming]) {
+    uniqueRecords.set(record.id, record);
+  }
+
+  return [...uniqueRecords.values()]
+    .sort((first, second) => new Date(second.created_at).getTime() - new Date(first.created_at).getTime())
+    .slice(0, 20);
 }
 
 function SectionHeading({ title, subtitle }: { title: string; subtitle: string }) {
