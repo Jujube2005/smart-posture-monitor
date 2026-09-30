@@ -31,12 +31,23 @@ type Statistics = {
 
 type SensorReading = Pick<PostureData, "id" | "ax" | "ay" | "az" | "created_at">;
 type HistoryStatus = "loading" | "ready" | "error";
+type PeriodStatistics = {
+  total: number;
+  goodPosture: number;
+  badPosture: number;
+  postureCounts: Statistics;
+};
+type Analytics = {
+  today: PeriodStatistics;
+  last7Days: PeriodStatistics;
+};
 
 export default function Home() {
   const [latest, setLatest] = useState<PostureData | null>(null);
   const [sensorReadings, setSensorReadings] = useState<SensorReading[]>([]);
   const [postureHistory, setPostureHistory] = useState<PostureData[]>([]);
   const [historyStatus, setHistoryStatus] = useState<HistoryStatus>("loading");
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
 
   const [statistics, setStatistics] = useState<Statistics>({
     straight: 0,
@@ -84,9 +95,30 @@ export default function Home() {
         return mergePostureHistory(records, [newRecord]);
       });
       setError("");
+      void loadAnalytics();
     } catch (err) {
       console.error(err);
       setError("ไม่สามารถโหลดข้อมูลจากเซิร์ฟเวอร์");
+    }
+  }
+
+  async function loadAnalytics() {
+    try {
+      const response = await fetch("/api/posture/statistics", { cache: "no-store" });
+
+      if (!response.ok) {
+        throw new Error("Statistics API request failed");
+      }
+
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.message || "Statistics API returned an error");
+      }
+
+      setAnalytics(result as Analytics);
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -123,6 +155,8 @@ export default function Home() {
       clearTimeout(initialHistoryLoad);
       clearInterval(interval);
     };
+    // The dashboard poller is intentionally created once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function postureName(posture: string) {
@@ -232,6 +266,22 @@ export default function Home() {
             />
 
           </div>
+        </section>
+
+        {/* Posture analytics */}
+        <section className="mb-8">
+          <SectionHeading title="Posture Analytics" subtitle="สรุปข้อมูลจาก Supabase แบบ Real-time" />
+          {analytics ? (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <AnalyticsCard title="Today" subtitle="สรุปท่าทางวันนี้" statistics={analytics.today} />
+              <AnalyticsCard title="Last 7 Days" subtitle="สรุปท่าทาง 7 วันล่าสุด" statistics={analytics.last7Days} />
+            </div>
+          ) : (
+            <div className="rounded-3xl border border-[#dbe7f3] bg-white px-6 py-10 text-center shadow-[0_8px_24px_rgba(24,79,135,0.06)]">
+              <p className="text-sm font-semibold text-[#102a43]">Loading posture analytics</p>
+              <p className="mt-1 text-xs font-medium text-[#8191a5]">กำลังวิเคราะห์ข้อมูลท่าทางจากเซ็นเซอร์</p>
+            </div>
+          )}
         </section>
 
         {/* Sensor */}
@@ -413,6 +463,46 @@ function mergePostureHistory(current: PostureData[], incoming: PostureData[]) {
   return [...uniqueRecords.values()]
     .sort((first, second) => new Date(second.created_at).getTime() - new Date(first.created_at).getTime())
     .slice(0, 20);
+}
+
+function AnalyticsCard({
+  title,
+  subtitle,
+  statistics,
+}: {
+  title: string;
+  subtitle: string;
+  statistics: PeriodStatistics;
+}) {
+  const goodPercentage = statistics.total > 0
+    ? Math.round((statistics.goodPosture / statistics.total) * 100)
+    : 0;
+
+  return (
+    <div className="rounded-3xl border border-[#dbe7f3] bg-white p-5 shadow-[0_8px_24px_rgba(24,79,135,0.06)] sm:p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div><p className="text-lg font-bold text-[#102a43]">{title}</p><p className="mt-0.5 text-xs font-medium text-[#718198]">{subtitle}</p></div>
+        <div className="rounded-2xl bg-[#edf5ff] px-3 py-2 text-right"><p className="text-xl font-bold text-[#2675d9]">{goodPercentage}%</p><p className="text-[10px] font-bold tracking-wide text-[#4a7ebd]">GOOD POSTURE</p></div>
+      </div>
+      <div className="mt-5 h-2.5 overflow-hidden rounded-full bg-[#fbe7e1]"><div className="h-full rounded-full bg-[#22a566] transition-all duration-500" style={{ width: `${goodPercentage}%` }} /></div>
+      <div className="mt-5 grid grid-cols-3 gap-3">
+        <AnalyticsMetric label="Total records" value={statistics.total} tone="navy" />
+        <AnalyticsMetric label="Good posture" value={statistics.goodPosture} tone="good" />
+        <AnalyticsMetric label="Bad posture" value={statistics.badPosture} tone="bad" />
+      </div>
+      <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-[#edf2f7] pt-4 text-xs font-medium text-[#718198] sm:grid-cols-4">
+        <span>STRAIGHT <b className="ml-1 text-[#178754]">{statistics.postureCounts.straight}</b></span>
+        <span>HUNCHED <b className="ml-1 text-[#df5734]">{statistics.postureCounts.hunched}</b></span>
+        <span>LEAN LEFT <b className="ml-1 text-[#df5734]">{statistics.postureCounts.leanLeft}</b></span>
+        <span>LEAN RIGHT <b className="ml-1 text-[#df5734]">{statistics.postureCounts.leanRight}</b></span>
+      </div>
+    </div>
+  );
+}
+
+function AnalyticsMetric({ label, value, tone }: { label: string; value: number; tone: "navy" | "good" | "bad" }) {
+  const color = tone === "good" ? "text-[#178754]" : tone === "bad" ? "text-[#df5734]" : "text-[#102a43]";
+  return <div><p className={`text-2xl font-bold tracking-tight ${color}`}>{value}</p><p className="mt-1 text-[11px] font-medium leading-tight text-[#8191a5]">{label}</p></div>;
 }
 
 function SectionHeading({ title, subtitle }: { title: string; subtitle: string }) {
