@@ -34,6 +34,7 @@ type SensorReading = Pick<PostureData, "id" | "ax" | "ay" | "az" | "created_at">
 export default function Home() {
   const [latest, setLatest] = useState<PostureData | null>(null);
   const [sensorReadings, setSensorReadings] = useState<SensorReading[]>([]);
+  const [postureHistory, setPostureHistory] = useState<PostureData[]>([]);
 
   const [statistics, setStatistics] = useState<Statistics>({
     straight: 0,
@@ -70,6 +71,17 @@ export default function Home() {
         }
 
         return [...readings, newReading].slice(-30);
+      });
+      setPostureHistory((records) => {
+        const newRecord = result.latest as PostureData | null;
+
+        if (!newRecord || records.some((record) => record.id === newRecord.id)) {
+          return records;
+        }
+
+        return [newRecord, ...records]
+          .sort((first, second) => new Date(second.created_at).getTime() - new Date(first.created_at).getTime())
+          .slice(0, 20);
       });
       setError("");
     } catch (err) {
@@ -263,6 +275,37 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Posture history */}
+        <section className="mb-8">
+          <SectionHeading title="Posture History" subtitle="20 รายการล่าสุดจากเซ็นเซอร์" />
+          <div className="overflow-hidden rounded-3xl border border-[#dbe7f3] bg-white shadow-[0_8px_24px_rgba(24,79,135,0.06)]">
+            {postureHistory.length === 0 ? (
+              <div className="flex min-h-40 flex-col items-center justify-center px-6 py-10 text-center">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#edf5ff] text-[#2675d9]"><PostureIcon className="h-5 w-5" /></div>
+                <p className="mt-3 text-sm font-semibold text-[#102a43]">Waiting for posture records</p>
+                <p className="mt-1 text-xs font-medium text-[#8191a5]">ข้อมูลจะแสดงเมื่อเซ็นเซอร์ส่งค่าใหม่</p>
+              </div>
+            ) : (
+              <div className="max-h-[360px] overflow-y-auto">
+                <div className="hidden grid-cols-[1.15fr_1fr_1fr_1.1fr] gap-4 border-b border-[#e7eef7] bg-[#f9fbfe] px-5 py-3 text-[11px] font-bold tracking-[0.1em] text-[#718198] sm:grid">
+                  <span>TIME</span><span>POSTURE</span><span>STATUS</span><span className="text-right">BAD DURATION</span>
+                </div>
+                {postureHistory.map((record) => {
+                  const isGoodRecord = record.posture === "STRAIGHT";
+                  return (
+                    <div key={record.id} className="grid gap-3 border-b border-[#edf2f7] px-5 py-4 last:border-b-0 sm:grid-cols-[1.15fr_1fr_1fr_1.1fr] sm:items-center sm:gap-4">
+                      <div><p className="text-sm font-semibold text-[#102a43]">{formatHistoryTime(record.created_at)}</p><p className="mt-0.5 text-xs font-medium text-[#8191a5]">{formatHistoryDate(record.created_at)}</p></div>
+                      <div><p className="text-sm font-semibold text-[#102a43]">{record.posture}</p><p className="mt-0.5 text-xs font-medium text-[#718198]">{postureName(record.posture)}</p></div>
+                      <div className={`flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${isGoodRecord ? "bg-[#ebfaf1] text-[#178754]" : "bg-[#fff0eb] text-[#df5734]"}`}><span className={`h-1.5 w-1.5 rounded-full ${isGoodRecord ? "bg-[#22a566]" : "bg-[#ef6b45]"}`} />{isGoodRecord ? "GOOD POSTURE" : "BAD POSTURE"}</div>
+                      <div className="sm:text-right"><span className="mr-1 text-xs font-medium text-[#8191a5] sm:hidden">Bad duration:</span><span className="text-sm font-semibold text-[#102a43]">{(record.bad_duration_ms / 1000).toFixed(1)} s</span></div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+
         {/* Bad posture duration */}
         <section className="mb-8 grid gap-4 lg:grid-cols-[1.55fr_1fr]">
           <div className="rounded-3xl border border-[#f7d9cf] bg-white p-6 shadow-[0_8px_24px_rgba(24,79,135,0.06)] sm:p-7">
@@ -334,6 +377,22 @@ function formatChartTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+  });
+}
+
+function formatHistoryTime(value: string) {
+  return new Date(value).toLocaleTimeString("th-TH", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function formatHistoryDate(value: string) {
+  return new Date(value).toLocaleDateString("th-TH", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
   });
 }
 
