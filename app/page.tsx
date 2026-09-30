@@ -83,84 +83,62 @@ export default function Home() {
     return latest?.posture === "STRAIGHT";
   }
 
+  const isGood = postureGood();
+  const badDuration = latest ? latest.bad_duration_ms / 1000 : 0;
+  const durationProgress = Math.min((badDuration / 5) * 100, 100);
+
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto max-w-7xl px-6 py-10">
+    <main className="min-h-screen overflow-x-hidden bg-[#f6f9fd] text-[#102a43]">
+      <div className="mx-auto max-w-[1340px] px-4 py-6 sm:px-6 sm:py-9 lg:px-8">
 
         {/* Header */}
-        <header className="mb-8">
-          <p className="text-sm font-semibold tracking-widest text-cyan-400">
-            IoT WELLNESS SYSTEM
-          </p>
-
-          <h1 className="mt-2 text-4xl font-bold">
-            Smart Posture Monitor
-          </h1>
-
-          <p className="mt-2 text-slate-400">
-            ระบบตรวจสอบท่าทางแบบ Real-time
-          </p>
+        <header className="mb-7 flex flex-col gap-5 border-b border-[#dce8f5] pb-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#e6f1ff] text-[#1769d4]">
+              <PostureIcon className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold tracking-[0.16em] text-[#2675d9]">IOT WELLNESS SYSTEM</p>
+              <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-[#102a43] sm:text-3xl">Smart Posture Monitor</h1>
+              <p className="mt-0.5 text-sm font-medium text-[#64748b]">Real-time IoT Wellness Dashboard</p>
+            </div>
+          </div>
+          <div className="flex w-fit items-center gap-2 rounded-full border border-[#bee7d2] bg-[#f0fdf5] px-4 py-2 text-sm font-semibold text-[#168653]">
+            <span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#34b879] opacity-40" /><span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#22a566]" /></span>
+            Device online
+          </div>
         </header>
 
         {/* Error */}
         {error && (
-          <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-red-300">
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
             {error}
           </div>
         )}
 
         {/* Current posture */}
-        <section className="mb-6">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8">
-
-            <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-
-              <div>
-                <p className="text-sm text-slate-400">
-                  CURRENT POSTURE
-                </p>
-
-                <h2 className="mt-3 text-5xl font-bold">
-                  {latest
-                    ? postureName(latest.posture)
-                    : "กำลังโหลด..."}
-                </h2>
-
-                {latest && (
-                  <p
-                    className={`mt-3 text-sm font-semibold ${
-                      postureGood()
-                        ? "text-green-400"
-                        : "text-red-400"
-                    }`}
-                  >
-                    {postureGood()
-                      ? "● GOOD POSTURE"
-                      : "● BAD POSTURE"}
-                  </p>
-                )}
+        <section className="mb-8">
+          <div className={`relative overflow-hidden rounded-3xl border bg-white p-6 shadow-[0_12px_30px_rgba(24,79,135,0.08)] transition-shadow hover:shadow-[0_16px_36px_rgba(24,79,135,0.12)] sm:p-8 ${isGood ? "border-[#cce8dc]" : "border-[#fde0d4]"}`}>
+            <div className={`absolute left-0 top-0 h-full w-1.5 ${isGood ? "bg-[#22a566]" : "bg-[#ef6b45]"}`} />
+            <div className="flex flex-col gap-7 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-5">
+                <div className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl ${isGood ? "bg-[#ecfaf2] text-[#1c9b60]" : "bg-[#fff2ed] text-[#e6603a]"}`}>
+                  <PostureIcon className="h-8 w-8" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold tracking-[0.14em] text-[#64748b]">CURRENT POSTURE</p>
+                  <h2 className="mt-1.5 text-4xl font-bold tracking-tight text-[#102a43] sm:text-5xl">{latest ? postureName(latest.posture) : "กำลังโหลด..."}</h2>
+                  <p className="mt-1 text-sm font-medium text-[#64748b]">{latest?.posture ?? "Awaiting sensor data"}</p>
+                </div>
               </div>
-
-              <div className="rounded-xl border border-slate-700 bg-slate-800 px-8 py-5 text-center">
-                <p className="text-xs text-slate-400">
-                  DEVICE STATUS
-                </p>
-
-                <p className="mt-2 font-semibold text-green-400">
-                  ● ONLINE
-                </p>
-              </div>
-
+              {latest && <div className={`flex items-center gap-2.5 rounded-full px-4 py-2.5 text-sm font-bold ${isGood ? "bg-[#ebfaf1] text-[#178754]" : "bg-[#fff0eb] text-[#df5734]"}`}><span className={`h-2.5 w-2.5 rounded-full ${isGood ? "bg-[#22a566]" : "bg-[#ef6b45]"}`} />{isGood ? "GOOD POSTURE" : "BAD POSTURE"}</div>}
             </div>
           </div>
         </section>
 
         {/* Statistics */}
-        <section className="mb-6">
-
-          <h2 className="mb-4 text-xl font-semibold">
-            Posture Statistics
-          </h2>
+        <section className="mb-8">
+          <SectionHeading title="Posture Statistics" subtitle="ภาพรวมท่าทางที่ตรวจพบ" />
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
@@ -168,35 +146,36 @@ export default function Home() {
               title="หลังตรง"
               label="STRAIGHT"
               value={statistics.straight}
+              tone="good"
             />
 
             <StatCard
               title="หลังค่อม"
               label="HUNCHED"
               value={statistics.hunched}
+              tone="alert"
             />
 
             <StatCard
               title="เอียงซ้าย"
               label="LEAN LEFT"
               value={statistics.leanLeft}
+              tone="warning"
             />
 
             <StatCard
               title="เอียงขวา"
               label="LEAN RIGHT"
               value={statistics.leanRight}
+              tone="warning"
             />
 
           </div>
         </section>
 
         {/* Sensor */}
-        <section className="mb-6">
-
-          <h2 className="mb-4 text-xl font-semibold">
-            MPU6050 Sensor
-          </h2>
+        <section className="mb-8">
+          <SectionHeading title="MPU6050 Sensor" subtitle="ข้อมูลความเร่งแบบ Real-time" />
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
 
@@ -219,33 +198,24 @@ export default function Home() {
         </section>
 
         {/* Bad posture duration */}
-        <section className="mb-6">
-
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
-            <p className="text-sm text-slate-400">
-              BAD POSTURE DURATION
-            </p>
-
-            <p className="mt-2 text-3xl font-bold">
-              {latest
-                ? (latest.bad_duration_ms / 1000).toFixed(1)
-                : "0.0"}{" "}
-              <span className="text-base font-normal text-slate-400">
-                seconds
-              </span>
-            </p>
-
+        <section className="mb-8 grid gap-4 lg:grid-cols-[1.55fr_1fr]">
+          <div className="rounded-3xl border border-[#f7d9cf] bg-white p-6 shadow-[0_8px_24px_rgba(24,79,135,0.06)] sm:p-7">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold tracking-[0.14em] text-[#64748b]">BAD POSTURE DURATION</p>
+                <p className="mt-2 text-3xl font-bold text-[#102a43] sm:text-4xl">{badDuration.toFixed(1)} <span className="text-base font-medium text-[#64748b]">seconds</span></p>
+              </div>
+              <span className="rounded-full bg-[#fff0eb] px-3 py-1.5 text-xs font-bold text-[#df5734]">Alert at 5 seconds</span>
+            </div>
+            <div className="mt-6 h-2.5 overflow-hidden rounded-full bg-[#fbe7e1]"><div className="h-full rounded-full bg-[#ef6b45] transition-all duration-500" style={{ width: `${durationProgress}%` }} /></div>
+            <div className="mt-2 flex justify-between text-xs font-medium text-[#8191a5]"><span>0s</span><span>5s alert threshold</span></div>
+          </div>
+          <div className="rounded-3xl border border-[#dbe7f3] bg-white p-6 shadow-[0_8px_24px_rgba(24,79,135,0.06)] sm:p-7">
+            <p className="text-xs font-semibold tracking-[0.14em] text-[#64748b]">LAST UPDATE</p>
+            <p className="mt-3 text-base font-semibold leading-relaxed text-[#102a43]">{latest ? new Date(latest.created_at).toLocaleString("th-TH") : "กำลังรอข้อมูล..."}</p>
+            <p className="mt-2 text-xs font-medium text-[#2675d9]">Auto-refresh every 2 seconds</p>
           </div>
         </section>
-
-        {/* Last update */}
-        {latest && (
-          <footer className="text-right text-xs text-slate-500">
-            Last update:{" "}
-            {new Date(latest.created_at).toLocaleString("th-TH")}
-          </footer>
-        )}
 
       </div>
     </main>
@@ -256,26 +226,19 @@ function StatCard({
   title,
   label,
   value,
+  tone,
 }: {
   title: string;
   label: string;
   value: number;
+  tone: "good" | "alert" | "warning";
 }) {
+  const style = tone === "good" ? "bg-[#ebfaf1] text-[#1c9b60]" : tone === "alert" ? "bg-[#fff0eb] text-[#e6603a]" : "bg-[#fff6e8] text-[#dd8824]";
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
-      <p className="text-sm text-slate-400">
-        {title}
-      </p>
-
-      <p className="mt-3 text-4xl font-bold">
-        {value}
-      </p>
-
-      <p className="mt-1 text-xs text-slate-500">
-        {label}
-      </p>
-
+    <div className="rounded-2xl border border-[#dbe7f3] bg-white p-5 shadow-[0_6px_18px_rgba(24,79,135,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_22px_rgba(24,79,135,0.09)]">
+      <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-[#102a43]">{title}</p><p className="mt-0.5 text-xs font-medium text-[#718198]">{label}</p></div><div className={`flex h-9 w-9 items-center justify-center rounded-xl ${style}`}><PostureIcon className="h-4 w-4" /></div></div>
+      <p className="mt-5 text-4xl font-bold tracking-tight text-[#102a43]">{value}</p>
+      <p className="mt-1 text-xs font-medium text-[#8191a5]">ครั้งที่ตรวจพบ</p>
     </div>
   );
 }
@@ -288,22 +251,18 @@ function SensorCard({
   value?: number;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
-      <p className="text-sm text-slate-400">
-        {name}
-      </p>
-
-      <p className="mt-3 font-mono text-3xl font-bold">
-        {value !== undefined
-          ? value.toFixed(3)
-          : "---"}
-      </p>
-
-      <p className="mt-1 text-xs text-slate-500">
-        Acceleration (g)
-      </p>
-
+    <div className="rounded-2xl border border-[#dbe7f3] bg-white p-6 shadow-[0_6px_18px_rgba(24,79,135,0.05)]">
+      <div className="flex items-center justify-between"><p className="text-sm font-bold text-[#102a43]">{name}</p><span className="rounded-lg bg-[#edf5ff] px-2 py-1 text-[10px] font-bold tracking-wider text-[#2675d9]">ACCEL</span></div>
+      <p className="mt-4 font-mono text-3xl font-bold tracking-tight text-[#102a43]">{value !== undefined ? value.toFixed(3) : "---"}</p>
+      <p className="mt-1 text-xs font-medium text-[#8191a5]">Acceleration (g)</p>
     </div>
   );
+}
+
+function SectionHeading({ title, subtitle }: { title: string; subtitle: string }) {
+  return <div className="mb-4 flex flex-wrap items-end justify-between gap-1"><h2 className="text-xl font-bold tracking-tight text-[#102a43]">{title}</h2><p className="text-sm font-medium text-[#718198]">{subtitle}</p></div>;
+}
+
+function PostureIcon({ className }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className} aria-hidden="true"><circle cx="12" cy="5" r="2.5" /><path d="M12 8v6m0 0 4 7m-4-7-4 7m4-11 4 3m-4-3-4 3" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
