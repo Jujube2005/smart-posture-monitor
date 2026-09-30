@@ -1,6 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 type PostureData = {
   id: number;
@@ -19,8 +29,11 @@ type Statistics = {
   leanRight: number;
 };
 
+type SensorReading = Pick<PostureData, "id" | "ax" | "ay" | "az" | "created_at">;
+
 export default function Home() {
   const [latest, setLatest] = useState<PostureData | null>(null);
+  const [sensorReadings, setSensorReadings] = useState<SensorReading[]>([]);
 
   const [statistics, setStatistics] = useState<Statistics>({
     straight: 0,
@@ -49,6 +62,15 @@ export default function Home() {
 
       setLatest(result.latest);
       setStatistics(result.statistics);
+      setSensorReadings((readings) => {
+        const newReading = result.latest as PostureData | null;
+
+        if (!newReading || readings.some((reading) => reading.id === newReading.id)) {
+          return readings;
+        }
+
+        return [...readings, newReading].slice(-30);
+      });
       setError("");
     } catch (err) {
       console.error(err);
@@ -57,11 +79,14 @@ export default function Home() {
   }
 
   useEffect(() => {
-    loadData();
+    const initialLoad = window.setTimeout(loadData, 0);
 
     const interval = setInterval(loadData, 2000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialLoad);
+      clearInterval(interval);
+    };
   }, []);
 
   function postureName(posture: string) {
@@ -197,6 +222,47 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Sensor monitoring */}
+        <section className="mb-8">
+          <SectionHeading title="Sensor Monitoring" subtitle="แนวโน้มค่าเซ็นเซอร์ 30 รายการล่าสุด" />
+          <div className="rounded-3xl border border-[#dbe7f3] bg-white p-4 shadow-[0_8px_24px_rgba(24,79,135,0.06)] sm:p-6">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-2 px-1">
+              <div>
+                <p className="text-sm font-semibold text-[#102a43]">Acceleration history</p>
+                <p className="mt-0.5 text-xs font-medium text-[#8191a5]">Real-time readings from MPU6050</p>
+              </div>
+              <span className="rounded-full bg-[#edf5ff] px-3 py-1.5 text-xs font-semibold text-[#2675d9]">{sensorReadings.length}/30 readings</span>
+            </div>
+            <div className="h-[300px] w-full sm:h-[360px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={sensorReadings} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
+                  <CartesianGrid stroke="#e7eef7" strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="created_at"
+                    tickFormatter={formatChartTime}
+                    tick={{ fill: "#718198", fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#dbe7f3" }}
+                    minTickGap={32}
+                  />
+                  <YAxis
+                    tick={{ fill: "#718198", fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(value: number) => value.toFixed(1)}
+                    label={{ value: "Acceleration (g)", angle: -90, position: "insideLeft", fill: "#718198", fontSize: 11, dx: -3 }}
+                  />
+                  <Tooltip content={<SensorTooltip />} cursor={{ stroke: "#b8d7f7", strokeWidth: 1 }} />
+                  <Legend wrapperStyle={{ paddingTop: "16px", fontSize: "12px", fontWeight: 600 }} />
+                  <Line type="monotone" dataKey="ax" name="AX" stroke="#2675d9" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="ay" name="AY" stroke="#22a566" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="az" name="AZ" stroke="#ef8b32" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </section>
+
         {/* Bad posture duration */}
         <section className="mb-8 grid gap-4 lg:grid-cols-[1.55fr_1fr]">
           <div className="rounded-3xl border border-[#f7d9cf] bg-white p-6 shadow-[0_8px_24px_rgba(24,79,135,0.06)] sm:p-7">
@@ -261,6 +327,40 @@ function SensorCard({
 
 function SectionHeading({ title, subtitle }: { title: string; subtitle: string }) {
   return <div className="mb-4 flex flex-wrap items-end justify-between gap-1"><h2 className="text-xl font-bold tracking-tight text-[#102a43]">{title}</h2><p className="text-sm font-medium text-[#718198]">{subtitle}</p></div>;
+}
+
+function formatChartTime(value: string) {
+  return new Date(value).toLocaleTimeString("th-TH", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function SensorTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{ color: string; name: string; value: number }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length || !label) return null;
+
+  return (
+    <div className="rounded-xl border border-[#dbe7f3] bg-white px-3.5 py-3 shadow-lg">
+      <p className="mb-2 text-xs font-semibold text-[#64748b]">{new Date(label).toLocaleString("th-TH")}</p>
+      <div className="space-y-1.5">
+        {payload.map((item) => (
+          <p key={item.name} className="flex items-center justify-between gap-5 text-xs font-semibold text-[#102a43]">
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />{item.name}</span>
+            <span>{Number(item.value).toFixed(3)} g</span>
+          </p>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function PostureIcon({ className }: { className?: string }) {
