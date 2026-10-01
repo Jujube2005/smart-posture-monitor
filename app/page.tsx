@@ -78,6 +78,10 @@ export default function Home() {
     }
   }
 
+  function isAbortError(err: unknown): boolean {
+    return err instanceof DOMException && err.name === "AbortError";
+  }
+
   async function loadData() {
     try {
       const result = await fetchJson<{
@@ -113,11 +117,10 @@ export default function Home() {
       });
       setError("");
     } catch (err) {
-      console.error("loadData failed:", err);
-
-      if (err instanceof DOMException && err.name === "AbortError") {
+      if (isAbortError(err)) {
         setError("เซิร์ฟเวอร์ใช้เวลาตอบกลับนานเกินไป");
       } else {
+        console.error("loadData failed:", err);
         setError("ไม่สามารถโหลดข้อมูลจากเซิร์ฟเวอร์");
       }
     }
@@ -136,7 +139,9 @@ export default function Home() {
 
       setAnalytics(result);
     } catch (err) {
-      console.error("loadAnalytics failed:", err);
+      if (!isAbortError(err)) {
+        console.error("loadAnalytics failed:", err);
+      }
     }
   }
 
@@ -155,7 +160,9 @@ export default function Home() {
       setPostureHistory((records) => mergePostureHistory(records, result.history));
       setHistoryStatus("ready");
     } catch (err) {
-      console.error("loadHistory failed:", err);
+      if (!isAbortError(err)) {
+        console.error("loadHistory failed:", err);
+      }
       setHistoryStatus("error");
     }
   }
