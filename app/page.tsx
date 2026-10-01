@@ -58,17 +58,34 @@ export default function Home() {
 
   const [error, setError] = useState("");
 
-  async function loadData() {
+  async function fetchJson<T>(url: string): Promise<T> {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 5000);
+
     try {
-      const response = await fetch("/api/posture/latest", {
+      const response = await fetch(url, {
         cache: "no-store",
+        signal: controller.signal,
       });
 
       if (!response.ok) {
-        throw new Error("API request failed");
+        throw new Error(`${url} returned HTTP ${response.status}`);
       }
 
-      const result = await response.json();
+      return await response.json();
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  async function loadData() {
+    try {
+      const result = await fetchJson<{
+        success: boolean;
+        latest: PostureData | null;
+        statistics: Statistics;
+        message?: string;
+      }>("/api/posture/latest");
 
       if (!result.success) {
         throw new Error(result.message || "API returned an error");
@@ -95,67 +112,74 @@ export default function Home() {
         return mergePostureHistory(records, [newRecord]);
       });
       setError("");
-      void loadAnalytics();
     } catch (err) {
-      console.error(err);
-      setError("ไม่สามารถโหลดข้อมูลจากเซิร์ฟเวอร์");
+      console.error("loadData failed:", err);
+
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setError("เซิร์ฟเวอร์ใช้เวลาตอบกลับนานเกินไป");
+      } else {
+        setError("ไม่สามารถโหลดข้อมูลจากเซิร์ฟเวอร์");
+      }
     }
   }
 
   async function loadAnalytics() {
     try {
-      const response = await fetch("/api/posture/statistics", { cache: "no-store" });
-
-      if (!response.ok) {
-        throw new Error("Statistics API request failed");
-      }
-
-      const result = await response.json();
+      const result = await fetchJson<Analytics & {
+        success: boolean;
+        message?: string;
+      }>("/api/posture/statistics");
 
       if (!result.success) {
         throw new Error(result.message || "Statistics API returned an error");
       }
 
-      setAnalytics(result as Analytics);
+      setAnalytics(result);
     } catch (err) {
-      console.error(err);
+      console.error("loadAnalytics failed:", err);
     }
   }
 
   async function loadHistory() {
     try {
-      const response = await fetch("/api/posture/history", { cache: "no-store" });
-
-      if (!response.ok) {
-        throw new Error("History API request failed");
-      }
-
-      const result = await response.json();
+      const result = await fetchJson<{
+        success: boolean;
+        history: PostureData[];
+        message?: string;
+      }>("/api/posture/history");
 
       if (!result.success || !Array.isArray(result.history)) {
         throw new Error(result.message || "History API returned an error");
       }
 
-      setPostureHistory((records) => mergePostureHistory(records, result.history as PostureData[]));
+      setPostureHistory((records) => mergePostureHistory(records, result.history));
       setHistoryStatus("ready");
     } catch (err) {
-      console.error(err);
+      console.error("loadHistory failed:", err);
       setHistoryStatus("error");
     }
   }
 
   useEffect(() => {
-    const initialLoad = window.setTimeout(loadData, 0);
-    const initialHistoryLoad = window.setTimeout(loadHistory, 0);
+    const initialLoad = window.setTimeout(() => {
+      void loadData();
+      void loadHistory();
+      void loadAnalytics();
+    }, 0);
 
-    const interval = setInterval(loadData, 2000);
+    const postureInterval = window.setInterval(() => {
+      void loadData();
+    }, 2000);
+    const analyticsInterval = window.setInterval(() => {
+      void loadAnalytics();
+    }, 10000);
 
     return () => {
-      clearTimeout(initialLoad);
-      clearTimeout(initialHistoryLoad);
-      clearInterval(interval);
+      window.clearTimeout(initialLoad);
+      window.clearInterval(postureInterval);
+      window.clearInterval(analyticsInterval);
     };
-    // The dashboard poller is intentionally created once on mount.
+    // Pollers intentionally created once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
