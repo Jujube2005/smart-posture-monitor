@@ -13,6 +13,26 @@ const supabase = createClient(
   supabaseSecretKey
 );
 
+const PAGE_SIZE = 1000;
+
+async function fetchAllPostureRows() {
+  const rows: { posture: string }[] = [];
+
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("posture_data")
+      .select("posture")
+      .order("id", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (error) throw error;
+
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return rows;
+  }
+}
+
 export async function GET() {
   try {
     // ข้อมูลล่าสุด
@@ -28,13 +48,7 @@ export async function GET() {
     }
 
     // ดึงข้อมูลทั้งหมดสำหรับคำนวณสถิติ
-    const { data: allData, error: allDataError } = await supabase
-      .from("posture_data")
-      .select("posture");
-
-    if (allDataError) {
-      throw allDataError;
-    }
+    const allData = await fetchAllPostureRows();
 
     const statistics = {
       straight: 0,

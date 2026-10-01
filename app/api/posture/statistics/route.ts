@@ -10,6 +10,8 @@ if (!supabaseUrl || !supabaseSecretKey) {
 
 const supabase = createClient(supabaseUrl, supabaseSecretKey);
 
+export const dynamic = "force-dynamic";
+
 type PostureRow = {
   posture: string;
   created_at: string;
@@ -27,12 +29,37 @@ type PeriodStatistics = {
   };
 };
 
-function startOfBangkokDay(date: Date) {
-  const bangkokOffset = 7 * 60 * 60 * 1000;
-  const bangkokDate = new Date(date.getTime() + bangkokOffset);
-  bangkokDate.setUTCHours(0, 0, 0, 0);
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+const PAGE_SIZE = 1000;
 
-  return new Date(bangkokDate.getTime() - bangkokOffset);
+function startOfBangkokDay(date: Date) {
+  // Shift to Bangkok wall time, find midnight there, then convert back to UTC.
+  const bangkokDate = new Date(date.getTime() + BANGKOK_OFFSET_MS);
+  bangkokDate.setUTCHours(0, 0, 0, 0);
+  return new Date(bangkokDate.getTime() - BANGKOK_OFFSET_MS);
+}
+
+async function fetchPostureRows(from: Date, until: Date): Promise<PostureRow[]> {
+  const rows: PostureRow[] = [];
+
+  // Supabase/PostgREST responses are capped (commonly at 1,000 rows). Fetch
+  // every page so newer records and larger periods are fully counted.
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("posture_data")
+      .select("posture, created_at")
+      .gte("created_at", from.toISOString())
+      .lt("created_at", until.toISOString())
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (error) throw error;
+
+    const page = (data ?? []) as PostureRow[];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return rows;
+  }
 }
 
 function calculateStatistics(rows: PostureRow[]): PeriodStatistics {
@@ -44,10 +71,11 @@ function calculateStatistics(rows: PostureRow[]): PeriodStatistics {
   };
 
   for (const row of rows) {
-    if (row.posture === "STRAIGHT") postureCounts.straight++;
-    else if (row.posture === "HUNCHED") postureCounts.hunched++;
-    else if (row.posture === "LEAN LEFT") postureCounts.leanLeft++;
-    else if (row.posture === "LEAN RIGHT") postureCounts.leanRight++;
+    const posture = row.posture.trim().toUpperCase();
+    if (posture === "STRAIGHT") postureCounts.straight++;
+    else if (posture === "HUNCHED") postureCounts.hunched++;
+    else if (posture === "LEAN LEFT") postureCounts.leanLeft++;
+    else if (posture === "LEAN RIGHT") postureCounts.leanRight++;
   }
 
   const goodPosture = postureCounts.straight;
@@ -64,29 +92,23 @@ function calculateStatistics(rows: PostureRow[]): PeriodStatistics {
 export async function GET() {
   try {
     const todayStart = startOfBangkokDay(new Date());
+    const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
     const last7DaysStart = new Date(todayStart);
     last7DaysStart.setUTCDate(last7DaysStart.getUTCDate() - 6);
 
-    const { data, error } = await supabase
-      .from("posture_data")
-      .select("posture, created_at")
-      .gte("created_at", last7DaysStart.toISOString())
-      .order("created_at", { ascending: false });
+    // Use Bangkok calendar-day boundaries converted to ISO UTC timestamps.
+    // The upper bound is exclusive, covering through 23:59:59.999... local.
+    const last7DaysRows = await fetchPostureRows(last7DaysStart, tomorrowStart);
+    const todayRows = await fetchPostureRows(todayStart, tomorrowStart);
 
-    if (error) {
-      throw error;
-    }
-
-    const last7DaysRows = (data ?? []) as PostureRow[];
-    const todayRows = last7DaysRows.filter(
-      (row) => new Date(row.created_at).getTime() >= todayStart.getTime()
+    return NextResponse.json(
+      {
+        success: true,
+        today: calculateStatistics(todayRows),
+        last7Days: calculateStatistics(last7DaysRows),
+      },
+      { headers: { "Cache-Control": "no-store, max-age=0" } }
     );
-
-    return NextResponse.json({
-      success: true,
-      today: calculateStatistics(todayRows),
-      last7Days: calculateStatistics(last7DaysRows),
-    });
   } catch (error) {
     console.error("Posture statistics error:", error);
 
@@ -95,7 +117,7 @@ export async function GET() {
         success: false,
         message: "Failed to get posture statistics",
       },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store, max-age=0" } }
     );
   }
 }
