@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -57,32 +57,26 @@ export default function Home() {
   });
 
   const [error, setError] = useState("");
+  const latestRequestInFlight = useRef(false);
+  const analyticsRequestInFlight = useRef(false);
 
   async function fetchJson<T>(url: string): Promise<T> {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(url, { cache: "no-store" });
 
-    try {
-      const response = await fetch(url, {
-        cache: "no-store",
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`${url} returned HTTP ${response.status}`);
-      }
-
-      return await response.json();
-    } finally {
-      window.clearTimeout(timeout);
+    if (!response.ok) {
+      throw new Error(`${url} returned HTTP ${response.status}`);
     }
-  }
 
-  function isAbortError(err: unknown): boolean {
-    return err instanceof DOMException && err.name === "AbortError";
+    return await response.json();
   }
 
   async function loadData() {
+    if (latestRequestInFlight.current) {
+      return;
+    }
+
+    latestRequestInFlight.current = true;
+
     try {
       const result = await fetchJson<{
         success: boolean;
@@ -117,16 +111,22 @@ export default function Home() {
       });
       setError("");
     } catch (err) {
-      if (isAbortError(err)) {
-        setError("เซิร์ฟเวอร์ใช้เวลาตอบกลับนานเกินไป");
-      } else {
+      if (!(err instanceof TypeError)) {
         console.error("loadData failed:", err);
-        setError("ไม่สามารถโหลดข้อมูลจากเซิร์ฟเวอร์");
       }
+      setError("ไม่สามารถโหลดข้อมูลจากเซิร์ฟเวอร์");
+    } finally {
+      latestRequestInFlight.current = false;
     }
   }
 
   async function loadAnalytics() {
+    if (analyticsRequestInFlight.current) {
+      return;
+    }
+
+    analyticsRequestInFlight.current = true;
+
     try {
       const result = await fetchJson<Analytics & {
         success: boolean;
@@ -139,9 +139,11 @@ export default function Home() {
 
       setAnalytics(result);
     } catch (err) {
-      if (!isAbortError(err)) {
+      if (!(err instanceof TypeError)) {
         console.error("loadAnalytics failed:", err);
       }
+    } finally {
+      analyticsRequestInFlight.current = false;
     }
   }
 
@@ -160,7 +162,7 @@ export default function Home() {
       setPostureHistory((records) => mergePostureHistory(records, result.history));
       setHistoryStatus("ready");
     } catch (err) {
-      if (!isAbortError(err)) {
+      if (!(err instanceof TypeError)) {
         console.error("loadHistory failed:", err);
       }
       setHistoryStatus("error");
