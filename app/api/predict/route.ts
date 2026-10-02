@@ -11,6 +11,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
   "Cache-Control": "no-store, max-age=0",
 };
+const allowedPostures = new Set([
+  "STRAIGHT",
+  "HUNCHED",
+  "LEAN LEFT",
+  "LEAN RIGHT",
+]);
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status, headers: corsHeaders });
@@ -42,10 +48,26 @@ export async function POST(request: Request) {
     return jsonError("ax, ay, and az are required finite numbers", 400);
   }
 
+  const sensorPosture = input.sensor_posture ?? input.posture;
+  if (sensorPosture !== undefined &&
+      (typeof sensorPosture !== "string" || !allowedPostures.has(sensorPosture))) {
+    return jsonError("sensor_posture must be a supported posture label", 400);
+  }
+
+  if (input.bad_duration_ms !== undefined &&
+      (typeof input.bad_duration_ms !== "number" ||
+       !Number.isFinite(input.bad_duration_ms) || input.bad_duration_ms < 0)) {
+    return jsonError("bad_duration_ms must be a non-negative finite number", 400);
+  }
+
   try {
     const result = await predictAndSavePosture(values as [number, number, number]);
     return NextResponse.json(
-      { posture: result.posture, confidence: result.confidence },
+      {
+        posture: result.posture,
+        confidence: result.confidence,
+        ...(sensorPosture ? { sensor_posture: sensorPosture } : {}),
+      },
       { headers: corsHeaders }
     );
   } catch (error) {

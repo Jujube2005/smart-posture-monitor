@@ -1,7 +1,10 @@
 #include <Wire.h>
 #include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
 #include <ESP8266HTTPClient.h>
+#include <time.h>
 #include "secrets.h"
+#include "letsencrypt_root_ca.h"
 
 // ========================================
 // MPU6050
@@ -25,8 +28,14 @@
 const char* WIFI_SSID = WIFI_SSID_VALUE;
 const char* WIFI_PASSWORD = WIFI_PASSWORD_VALUE;
 
-const char* SERVER_URL =
-  "http://172.20.10.4:3000/api/predict";
+#ifndef VERCEL_API_URL_VALUE
+#error "Set VERCEL_API_URL_VALUE in the local ESP8266/secrets.h file."
+#endif
+
+const char* SERVER_URL = VERCEL_API_URL_VALUE;
+const char* const WIFI_CONNECTING_MESSAGE = "Connecting to WiFi";
+
+BearSSL::X509List letsEncryptTrustAnchor(LETS_ENCRYPT_ROOT_CA);
 
 // ========================================
 // POSTURE THRESHOLDS
@@ -43,6 +52,8 @@ const char* SERVER_URL =
 // ========================================
 
 #define SEND_INTERVAL 2000
+#define WIFI_RETRY_INTERVAL 10000
+#define CLOUD_REQUEST_TIMEOUT 2500
 
 // ========================================
 // VARIABLES
@@ -55,49 +66,27 @@ bool alarmOn = false;
 
 // ส่งข้อมูลล่าสุดเมื่อไหร่
 unsigned long lastSendTime = 0;
+unsigned long lastWiFiAttemptTime = 0;
+bool networkTimeConfigured = false;
 
 
 // ========================================
 // WIFI CONNECTION
 // ========================================
 
-void connectWiFi() {
+void beginWiFiConnection() {
+  const unsigned long now = millis();
+  if (WiFi.status() == WL_CONNECTED ||
+      (lastWiFiAttemptTime != 0 &&
+       now - lastWiFiAttemptTime < WIFI_RETRY_INTERVAL)) {
+    return;
+  }
 
-  Serial.println();
-  Serial.print("Connecting to WiFi");
-
+  lastWiFiAttemptTime = now;
   WiFi.mode(WIFI_STA);
-
+  WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  int attempts = 0;
-
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-
-    delay(500);
-
-    Serial.print(".");
-
-    attempts++;
-  }
-
-  Serial.println();
-
-  if (WiFi.status() == WL_CONNECTED) {
-
-    Serial.println("WiFi Connected!");
-
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-
-    Serial.print("Signal Strength: ");
-    Serial.print(WiFi.RSSI());
-    Serial.println(" dBm");
-
-  } else {
-
-    Serial.println("WiFi Connection Failed");
-  }
+  Serial.println(WIFI_CONNECTING_MESSAGE);
 }
 
 
@@ -211,11 +200,30 @@ void sendPostureData(
     return;
   }
 
-  WiFiClient client;
+  const time_t now = time(nullptr);
+  if (now < 1760000000) {
+    Serial.println("Cloud send skipped: waiting for valid network time.");
+    return;
+  }
+
+  if (!String(SERVER_URL).startsWith("https://")) {
+    Serial.println("Cloud send failed: endpoint must use HTTPS.");
+    return;
+  }
+
+  BearSSL::WiFiClientSecure client;
+  client.setTrustAnchors(&letsEncryptTrustAnchor);
+  client.setX509Time(now);
+  client.setTimeout(CLOUD_REQUEST_TIMEOUT);
 
   HTTPClient http;
 
-  http.begin(client, SERVER_URL);
+  if (!http.begin(client, SERVER_URL)) {
+    Serial.println("Cloud send failed: invalid HTTPS endpoint.");
+    return;
+  }
+
+  http.setTimeout(CLOUD_REQUEST_TIMEOUT);
 
   http.addHeader(
     "Content-Type",
@@ -224,7 +232,7 @@ void sendPostureData(
 
   String json = "{";
 
-  json += "\"posture\":\"";
+  json += "\"sensor_posture\":\"";
   json += posture;
   json += "\",";
 
@@ -247,8 +255,7 @@ void sendPostureData(
 
 
   Serial.println();
-  Serial.println("Sending to server:");
-  Serial.println(json);
+  Serial.println("Sending sensor posture to Vercel API.");
 
 
   int httpCode = http.POST(json);
@@ -259,12 +266,8 @@ void sendPostureData(
 
 
   if (httpCode > 0) {
-
-    String response =
-      http.getString();
-
-    Serial.println("Server response:");
-    Serial.println(response);
+    Serial.print("Vercel API HTTP status: ");
+    Serial.println(httpCode);
 
   } else {
 
@@ -328,8 +331,8 @@ void setup() {
   delay(500);
 
 
-  // Connect WiFi
-  connectWiFi();
+  // Start Wi-Fi without waiting for the connection here.
+  beginWiFiConnection();
 
 
   Serial.println();
@@ -355,11 +358,10 @@ void loop() {
 
   if (WiFi.status() != WL_CONNECTED) {
 
-    Serial.println(
-      "WiFi disconnected."
-    );
-
-    connectWiFi();
+    beginWiFiConnection();
+  } else if (!networkTimeConfigured) {
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    networkTimeConfigured = true;
   }
 
 
