@@ -19,6 +19,7 @@ type PostureData = {
   ay: number;
   az: number;
   bad_duration_ms: number;
+  confidence?: number | null;
   created_at: string;
 };
 
@@ -41,6 +42,9 @@ type Analytics = {
   today: PeriodStatistics;
   last7Days: PeriodStatistics;
 };
+type BackendStatus = "checking" | "connected" | "unavailable";
+
+const DEVICE_OFFLINE_AFTER_MS = 5000;
 
 export default function Home() {
   const [latest, setLatest] = useState<PostureData | null>(null);
@@ -48,6 +52,8 @@ export default function Home() {
   const [postureHistory, setPostureHistory] = useState<PostureData[]>([]);
   const [historyStatus, setHistoryStatus] = useState<HistoryStatus>("loading");
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
+  const [currentTime, setCurrentTime] = useState(0);
 
   const [statistics, setStatistics] = useState<Statistics>({
     straight: 0,
@@ -91,6 +97,7 @@ export default function Home() {
 
       setLatest(result.latest);
       setStatistics(result.statistics);
+      setBackendStatus("connected");
       setSensorReadings((readings) => {
         const newReading = result.latest as PostureData | null;
 
@@ -115,6 +122,7 @@ export default function Home() {
         console.error("loadData failed:", err);
       }
       setError("ไม่สามารถโหลดข้อมูลจากเซิร์ฟเวอร์");
+      setBackendStatus("unavailable");
     } finally {
       latestRequestInFlight.current = false;
     }
@@ -171,6 +179,7 @@ export default function Home() {
 
   useEffect(() => {
     const initialLoad = window.setTimeout(() => {
+      setCurrentTime(Date.now());
       void loadData();
       void loadHistory();
       void loadAnalytics();
@@ -182,11 +191,15 @@ export default function Home() {
     const analyticsInterval = window.setInterval(() => {
       void loadAnalytics();
     }, 10000);
+    const clockInterval = window.setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
 
     return () => {
       window.clearTimeout(initialLoad);
       window.clearInterval(postureInterval);
       window.clearInterval(analyticsInterval);
+      window.clearInterval(clockInterval);
     };
     // Pollers intentionally created once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -212,8 +225,21 @@ export default function Home() {
   }
 
   const isGood = postureGood();
-  const badDuration = latest ? latest.bad_duration_ms / 1000 : 0;
-  const durationProgress = Math.min((badDuration / 5) * 100, 100);
+  const isBad = latest !== null && !isGood;
+  const latestTimestamp = latest ? Date.parse(latest.created_at) : Number.NaN;
+  const recordAgeMs = currentTime > 0 && Number.isFinite(latestTimestamp)
+    ? Math.max(0, currentTime - latestTimestamp)
+    : 0;
+  const deviceOnline = Boolean(
+    latest && currentTime > 0 && Number.isFinite(latestTimestamp) && recordAgeMs <= DEVICE_OFFLINE_AFTER_MS
+  );
+  const reportedBadDurationMs = latest ? Math.max(0, latest.bad_duration_ms ?? 0) : 0;
+  const badDurationMs = isBad
+    ? reportedBadDurationMs + (deviceOnline ? recordAgeMs : 0)
+    : 0;
+  const badDuration = badDurationMs / 1000;
+  const buzzerShouldBeOn = isBad && badDurationMs >= 5000;
+  const durationProgress = Math.min((badDurationMs / 5000) * 100, 100);
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#f6f9fd] text-[#102a43]">
@@ -231,9 +257,15 @@ export default function Home() {
               <p className="mt-0.5 text-sm font-medium text-[#64748b]">Real-time IoT Wellness Dashboard</p>
             </div>
           </div>
-          <div className="flex w-fit items-center gap-2 rounded-full border border-[#bee7d2] bg-[#f0fdf5] px-4 py-2 text-sm font-semibold text-[#168653]">
-            <span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#34b879] opacity-40" /><span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#22a566]" /></span>
-            Device online
+          <div className={`flex w-fit items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold ${deviceOnline ? "border-[#bee7d2] bg-[#f0fdf5] text-[#168653]" : "border-[#f4d7ac] bg-[#fff9ed] text-[#b76b12]"}`}>
+            <span className={`h-2.5 w-2.5 rounded-full ${deviceOnline ? "bg-[#22a566]" : "bg-[#e3a23b]"}`} />
+            Device data: {deviceOnline ? "ONLINE" : "OFFLINE"}
+          </div>
+          <div className="text-right">
+            <p className="text-[11px] font-medium text-[#8191a5]">สถานะอ้างอิงจากเวลาของข้อมูลเซ็นเซอร์ล่าสุด</p>
+            <p className={`mt-1 text-xs font-semibold ${backendStatus === "connected" ? "text-[#178754]" : backendStatus === "unavailable" ? "text-[#df5734]" : "text-[#8191a5]"}`}>
+              Backend API: {backendStatus === "connected" ? "Connected" : backendStatus === "unavailable" ? "Unavailable" : "Checking"}
+            </p>
           </div>
         </header>
 
@@ -254,12 +286,22 @@ export default function Home() {
                   <PostureIcon className="h-8 w-8" />
                 </div>
                 <div>
-                  <p className="text-xs font-semibold tracking-[0.14em] text-[#64748b]">CURRENT POSTURE</p>
+                  <p className="text-xs font-semibold tracking-[0.14em] text-[#64748b]">AI PREDICTION</p>
                   <h2 className="mt-1.5 text-4xl font-bold tracking-tight text-[#102a43] sm:text-5xl">{latest ? postureName(latest.posture) : "กำลังโหลด..."}</h2>
                   <p className="mt-1 text-sm font-medium text-[#64748b]">{latest?.posture ?? "Awaiting sensor data"}</p>
                 </div>
               </div>
-              {latest && <div className={`flex items-center gap-2.5 rounded-full px-4 py-2.5 text-sm font-bold ${isGood ? "bg-[#ebfaf1] text-[#178754]" : "bg-[#fff0eb] text-[#df5734]"}`}><span className={`h-2.5 w-2.5 rounded-full ${isGood ? "bg-[#22a566]" : "bg-[#ef6b45]"}`} />{isGood ? "GOOD POSTURE" : "BAD POSTURE"}</div>}
+              <div className="flex flex-wrap items-center gap-3">
+                {latest && <div className={`flex items-center gap-2.5 rounded-full px-4 py-2.5 text-sm font-bold ${isGood ? "bg-[#ebfaf1] text-[#178754]" : "bg-[#fff0eb] text-[#df5734]"}`}><span className={`h-2.5 w-2.5 rounded-full ${isGood ? "bg-[#22a566]" : "bg-[#ef6b45]"}`} />{isGood ? "GOOD" : "BAD"}</div>}
+                <div className="min-w-36 rounded-2xl border border-[#f2e4a7] bg-[#fffbea] px-4 py-3 text-center">
+                  <p className="text-[10px] font-bold tracking-[0.12em] text-[#9a7b19]">AI CONFIDENCE</p>
+                  <p className="mt-0.5 text-2xl font-bold text-[#846b14]">
+                    {typeof latest?.confidence === "number" && Number.isFinite(latest.confidence)
+                      ? `${(latest.confidence * 100).toFixed(1)}%`
+                      : "Unavailable"}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -430,11 +472,13 @@ export default function Home() {
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold tracking-[0.14em] text-[#64748b]">BAD POSTURE DURATION</p>
-                <p className="mt-2 text-3xl font-bold text-[#102a43] sm:text-4xl">{badDuration.toFixed(1)} <span className="text-base font-medium text-[#64748b]">seconds</span></p>
+                <p className="mt-2 text-3xl font-bold text-[#102a43] sm:text-4xl">{badDuration.toFixed(1)} <span className="text-base font-medium text-[#64748b]">/ 5.0 sec</span></p>
               </div>
-              <span className="rounded-full bg-[#fff0eb] px-3 py-1.5 text-xs font-bold text-[#df5734]">Alert at 5 seconds</span>
+              <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${buzzerShouldBeOn ? "bg-[#fff0eb] text-[#df5734]" : isGood ? "bg-[#ebfaf1] text-[#178754]" : "bg-[#fff9ed] text-[#b76b12]"}`}>
+                {buzzerShouldBeOn ? "BUZZER SHOULD BE ON" : isGood ? "GOOD · TIMER RESET" : "Threshold at 5 seconds"}
+              </span>
             </div>
-            <div className="mt-6 h-2.5 overflow-hidden rounded-full bg-[#fbe7e1]"><div className="h-full rounded-full bg-[#ef6b45] transition-all duration-500" style={{ width: `${durationProgress}%` }} /></div>
+            <div className="mt-6 h-2.5 overflow-hidden rounded-full bg-[#fbe7e1]"><div className={`h-full transition-all duration-500 ${buzzerShouldBeOn ? "bg-[#df5734]" : "bg-[#e3a23b]"}`} style={{ width: `${durationProgress}%` }} /></div>
             <div className="mt-2 flex justify-between text-xs font-medium text-[#8191a5]"><span>0s</span><span>5s alert threshold</span></div>
           </div>
           <div className="rounded-3xl border border-[#dbe7f3] bg-white p-6 shadow-[0_8px_24px_rgba(24,79,135,0.06)] sm:p-7">

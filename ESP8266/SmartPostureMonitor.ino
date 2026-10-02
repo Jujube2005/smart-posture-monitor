@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
+#include "secrets.h"
 
 // ========================================
 // MPU6050
@@ -21,11 +22,11 @@
 // WIFI
 // ========================================
 
-const char* WIFI_SSID = "Mamypoko";
-const char* WIFI_PASSWORD = "lala0101";
+const char* WIFI_SSID = WIFI_SSID_VALUE;
+const char* WIFI_PASSWORD = WIFI_PASSWORD_VALUE;
 
 const char* SERVER_URL =
-  "http://172.20.10.4:3000/api/posture";
+  "http://172.20.10.4:3000/api/predict";
 
 // ========================================
 // POSTURE THRESHOLDS

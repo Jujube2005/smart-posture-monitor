@@ -10,6 +10,15 @@
 !.yarn/releases
 !.yarn/versions
 
+# Python local/build artifacts
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+**/build/
+**/dist/
+**/.pio/
+
 # testing
 /coverage
 
@@ -23,6 +32,10 @@
 # misc
 .DS_Store
 *.pem
+*.key
+*.p12
+*.pfx
+.envrc
 
 # debug
 npm-debug.log*
@@ -31,7 +44,14 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
-.env*
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# local ESP8266 credentials
+secrets.h
+**/secrets.h
 
 # vercel
 .vercel

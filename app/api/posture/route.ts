@@ -1,87 +1,55 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { predictAndSavePosture } from "@/lib/save-prediction";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
-
-if (!supabaseUrl || !supabaseSecretKey) {
-  throw new Error("Supabase environment variables are missing");
-}
-
-const supabase = createClient(
-  supabaseUrl,
-  supabaseSecretKey
-);
+export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  let data: unknown;
   try {
-    const data = await request.json();
+    data = await request.json();
+  } catch {
+    return NextResponse.json(
+      { success: false, message: "Invalid JSON" },
+      { status: 400 }
+    );
+  }
 
-    const {
-      posture,
-      ax,
-      ay,
-      az,
-      bad_duration_ms,
-    } = data;
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return NextResponse.json(
+      { success: false, message: "Invalid posture data" },
+      { status: 400 }
+    );
+  }
 
-    // ตรวจข้อมูลที่จำเป็น
-    if (
-      typeof posture !== "string" ||
-      typeof ax !== "number" ||
-      typeof ay !== "number" ||
-      typeof az !== "number"
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid posture data",
-        },
-        { status: 400 }
-      );
-    }
+  const { ax, ay, az } = data as Record<string, unknown>;
+  if (
+    typeof ax !== "number" || !Number.isFinite(ax) ||
+    typeof ay !== "number" || !Number.isFinite(ay) ||
+    typeof az !== "number" || !Number.isFinite(az)
+  ) {
+    return NextResponse.json(
+      { success: false, message: "ax, ay, and az must be finite numbers" },
+      { status: 400 }
+    );
+  }
 
-    const { data: insertedData, error } = await supabase
-      .from("posture_data")
-      .insert({
-        posture,
-        ax,
-        ay,
-        az,
-        bad_duration_ms: bad_duration_ms ?? 0,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Supabase error:", error);
-
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Failed to save posture data",
-          error: error.message,
-        },
-        { status: 500 }
-      );
-    }
-
-    console.log("POSTURE DATA SAVED:", insertedData);
+  try {
+    const saved = await predictAndSavePosture([ax, ay, az]);
+    console.log("AI POSTURE DATA SAVED:", saved.data);
 
     return NextResponse.json({
       success: true,
       message: "Posture data saved",
-      data: insertedData,
+      data: saved.data,
     });
   } catch (error) {
-    console.error("Request error:", error);
-
+    console.error("Posture prediction/save error:", error);
     return NextResponse.json(
       {
         success: false,
-        message: "Invalid JSON",
+        message: "Failed to predict or save posture data",
       },
-      { status: 400 }
+      { status: 503 }
     );
   }
 }
