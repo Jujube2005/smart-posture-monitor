@@ -48,12 +48,13 @@ function getWorker(): WorkerState {
   if (existing && !existing.child.killed && existing.child.exitCode === null) return existing;
 
   const configuredPython = process.env.PYTHON_EXECUTABLE;
-  const pythonExecutable = configuredPython || (process.platform === "win32" ? "py" : "python3");
-  const pythonArgs = configuredPython
-    ? [WORKER_PATH, "--server"]
-    : process.platform === "win32"
-      ? ["-3", WORKER_PATH, "--server"]
-      : [WORKER_PATH, "--server"];
+  const venvPython = path.join(
+    process.cwd(),
+    ".venv",
+    process.platform === "win32" ? "Scripts/python.exe" : "bin/python"
+  );
+  const pythonExecutable = configuredPython || venvPython;
+  const pythonArgs = [WORKER_PATH, "--server"];
   const child = spawn(/* turbopackIgnore: true */ pythonExecutable, pythonArgs, {
     stdio: ["pipe", "pipe", "pipe"],
   });
