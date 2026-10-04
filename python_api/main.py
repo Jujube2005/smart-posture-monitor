@@ -111,7 +111,7 @@ def predict(request: PredictionRequest):
         logger.exception("Posture inference failed")
         raise HTTPException(status_code=500, detail="Posture inference failed") from error
 
-    bad_duration = 0 if posture == "STRAIGHT" else request.bad_duration_ms
+    bad_duration = 0 if posture == "STRAIGHT" else int(request.bad_duration_ms)
     try:
         client = get_supabase()
         result = client.table("posture_data").insert({
