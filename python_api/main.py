@@ -18,7 +18,7 @@ logger = logging.getLogger("posture-api")
 
 Posture = Literal["STRAIGHT", "HUNCHED", "LEAN LEFT", "LEAN RIGHT"]
 FEATURES = ["ax", "ay", "az"]
-DEFAULT_MODEL_PATH = Path(__file__).resolve().parent / "posture_model.joblib"
+DEFAULT_MODEL_PATH = Path(__file__).resolve().parent.parent / "posture_model.joblib"
 
 app = FastAPI(title="Smart Posture Prediction API", version="1.0.0")
 
@@ -36,7 +36,12 @@ class PredictionRequest(BaseModel):
 
 
 def _configured_model_path() -> Path:
-    return Path(os.getenv("MODEL_PATH", str(DEFAULT_MODEL_PATH))).expanduser()
+    configured = Path(os.getenv("MODEL_PATH", "posture_model.joblib")).expanduser()
+
+    if not configured.is_absolute():
+        configured = Path(__file__).resolve().parent.parent / configured
+
+    return configured
 
 
 @lru_cache(maxsize=1)
