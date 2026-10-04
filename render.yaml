@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: smart-posture-prediction-api
+    runtime: python
+    buildCommand: pip install -r python_api/requirements.txt
+    startCommand: uvicorn python_api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: MODEL_PATH
+        value: posture_model.joblib
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false

@@ -1,10 +1,10 @@
+
 #include <Wire.h>
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
 #include <ESP8266HTTPClient.h>
-#include <time.h>
+
 #include "secrets.h"
-#include "letsencrypt_root_ca.h"
 
 // ========================================
 // MPU6050
@@ -28,14 +28,13 @@
 const char* WIFI_SSID = WIFI_SSID_VALUE;
 const char* WIFI_PASSWORD = WIFI_PASSWORD_VALUE;
 
-#ifndef VERCEL_API_URL_VALUE
-#error "Set VERCEL_API_URL_VALUE in the local ESP8266/secrets.h file."
+#ifndef LOCAL_API_URL_VALUE
+#error "Set LOCAL_API_URL_VALUE in secrets.h"
 #endif
 
-const char* SERVER_URL = VERCEL_API_URL_VALUE;
-const char* const WIFI_CONNECTING_MESSAGE = "Connecting to WiFi";
+const char* SERVER_URL = LOCAL_API_URL_VALUE;
 
-BearSSL::X509List letsEncryptTrustAnchor(LETS_ENCRYPT_ROOT_CA);
+const char* const WIFI_CONNECTING_MESSAGE = "Connecting to WiFi";
 
 // ========================================
 // POSTURE THRESHOLDS
@@ -53,7 +52,7 @@ BearSSL::X509List letsEncryptTrustAnchor(LETS_ENCRYPT_ROOT_CA);
 
 #define SEND_INTERVAL 2000
 #define WIFI_RETRY_INTERVAL 10000
-#define CLOUD_REQUEST_TIMEOUT 2500
+#define CLOUD_REQUEST_TIMEOUT 10000
 
 // ========================================
 // VARIABLES
@@ -64,18 +63,17 @@ unsigned long badPostureStart = 0;
 bool badPostureTiming = false;
 bool alarmOn = false;
 
-// ส่งข้อมูลล่าสุดเมื่อไหร่
 unsigned long lastSendTime = 0;
 unsigned long lastWiFiAttemptTime = 0;
-bool networkTimeConfigured = false;
-
 
 // ========================================
 // WIFI CONNECTION
 // ========================================
 
 void beginWiFiConnection() {
+
   const unsigned long now = millis();
+
   if (WiFi.status() == WL_CONNECTED ||
       (lastWiFiAttemptTime != 0 &&
        now - lastWiFiAttemptTime < WIFI_RETRY_INTERVAL)) {
@@ -83,12 +81,13 @@ void beginWiFiConnection() {
   }
 
   lastWiFiAttemptTime = now;
+
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
   Serial.println(WIFI_CONNECTING_MESSAGE);
 }
-
 
 // ========================================
 // READ MPU6050
@@ -97,7 +96,6 @@ void beginWiFiConnection() {
 bool readMPU6050(float &AX, float &AY, float &AZ) {
 
   Wire.beginTransmission(MPU6050_ADDR);
-
   Wire.write(0x3B);
 
   if (Wire.endTransmission(false) != 0) {
@@ -126,7 +124,6 @@ bool readMPU6050(float &AX, float &AY, float &AZ) {
   return true;
 }
 
-
 // ========================================
 // POSTURE DETECTION
 // ========================================
@@ -148,7 +145,6 @@ String detectPosture(float AX, float AY, float AZ) {
   return "STRAIGHT";
 }
 
-
 // ========================================
 // BUZZER
 // ========================================
@@ -165,7 +161,6 @@ void startAlarm() {
   }
 }
 
-
 void stopAlarm() {
 
   if (alarmOn) {
@@ -178,9 +173,8 @@ void stopAlarm() {
   }
 }
 
-
 // ========================================
-// SEND DATA TO NEXT.JS
+// SEND DATA TO VERCEL API
 // ========================================
 
 void sendPostureData(
@@ -191,45 +185,46 @@ void sendPostureData(
   unsigned long badDuration
 ) {
 
+  // Check WiFi
   if (WiFi.status() != WL_CONNECTED) {
 
-    Serial.println(
-      "WiFi not connected. Cannot send data."
-    );
+    Serial.println("WiFi not connected. Cannot send data.");
 
     return;
   }
 
-  const time_t now = time(nullptr);
-  if (now < 1760000000) {
-    Serial.println("Cloud send skipped: waiting for valid network time.");
+  // Check HTTPS URL
+  String url = String(SERVER_URL);
+
+  if (!url.startsWith("https://")) {
+
+    Serial.println("ERROR: Endpoint must use HTTPS.");
+
     return;
   }
 
-  if (!String(SERVER_URL).startsWith("https://")) {
-    Serial.println("Cloud send failed: endpoint must use HTTPS.");
-    return;
-  }
+  // HTTPS Client
+  WiFiClientSecure client;
 
-  BearSSL::WiFiClientSecure client;
-  client.setTrustAnchors(&letsEncryptTrustAnchor);
-  client.setX509Time(now);
+  // Testing only: skip SSL certificate verification
+  client.setInsecure();
+
   client.setTimeout(CLOUD_REQUEST_TIMEOUT);
 
   HTTPClient http;
 
-  if (!http.begin(client, SERVER_URL)) {
-    Serial.println("Cloud send failed: invalid HTTPS endpoint.");
+  if (!http.begin(client, url)) {
+
+    Serial.println("HTTPS initialization failed.");
+
     return;
   }
 
   http.setTimeout(CLOUD_REQUEST_TIMEOUT);
 
-  http.addHeader(
-    "Content-Type",
-    "application/json"
-  );
+  http.addHeader("Content-Type", "application/json");
 
+  // Build JSON
   String json = "{";
 
   json += "\"sensor_posture\":\"";
@@ -253,33 +248,36 @@ void sendPostureData(
 
   json += "}";
 
-
+  // Send request
   Serial.println();
   Serial.println("Sending sensor posture to Vercel API.");
 
+  Serial.print("Endpoint: ");
+  Serial.println(url);
 
   int httpCode = http.POST(json);
-
 
   Serial.print("HTTP Response: ");
   Serial.println(httpCode);
 
-
   if (httpCode > 0) {
-    Serial.print("Vercel API HTTP status: ");
+
+    Serial.print("HTTP Status: ");
     Serial.println(httpCode);
+
+    String response = http.getString();
+
+    Serial.println("API Response:");
+    Serial.println(response);
 
   } else {
 
-    Serial.println(
-      "HTTP request failed."
-    );
+    Serial.print("HTTP request failed: ");
+    Serial.println(http.errorToString(httpCode));
   }
-
 
   http.end();
 }
-
 
 // ========================================
 // SETUP
@@ -291,13 +289,11 @@ void setup() {
 
   delay(500);
 
-
   Serial.println();
   Serial.println("================================");
   Serial.println(" SMART POSTURE MONITOR");
   Serial.println(" ESP8266 + MPU6050 + BUZZER");
   Serial.println("================================");
-
 
   // I2C
   Wire.begin(
@@ -305,41 +301,31 @@ void setup() {
     SCL_PIN
   );
 
-
   // Buzzer
   pinMode(
     BUZZER_PIN,
     OUTPUT
   );
 
-  noTone(
-    BUZZER_PIN
-  );
-
+  noTone(BUZZER_PIN);
 
   // Wake up MPU6050
-  Wire.beginTransmission(
-    MPU6050_ADDR
-  );
+  Wire.beginTransmission(MPU6050_ADDR);
 
   Wire.write(0x6B);
   Wire.write(0);
 
   Wire.endTransmission(true);
 
-
   delay(500);
 
-
-  // Start Wi-Fi without waiting for the connection here.
+  // Start WiFi
   beginWiFiConnection();
-
 
   Serial.println();
   Serial.println("System Ready");
   Serial.println();
 }
-
 
 // ========================================
 // LOOP
@@ -351,7 +337,6 @@ void loop() {
   float AY;
   float AZ;
 
-
   // ======================================
   // CHECK WIFI
   // ======================================
@@ -359,25 +344,16 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED) {
 
     beginWiFiConnection();
-  } else if (!networkTimeConfigured) {
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-    networkTimeConfigured = true;
-  }
 
+  }
 
   // ======================================
   // READ SENSOR
   // ======================================
 
-  if (!readMPU6050(
-        AX,
-        AY,
-        AZ
-      )) {
+  if (!readMPU6050(AX, AY, AZ)) {
 
-    Serial.println(
-      "ERROR: MPU6050 NOT DETECTED"
-    );
+    Serial.println("ERROR: MPU6050 NOT DETECTED");
 
     stopAlarm();
 
@@ -386,18 +362,11 @@ void loop() {
     return;
   }
 
-
   // ======================================
   // DETECT POSTURE
   // ======================================
 
-  String posture =
-    detectPosture(
-      AX,
-      AY,
-      AZ
-    );
-
+  String posture = detectPosture(AX, AY, AZ);
 
   // ======================================
   // SERIAL OUTPUT
@@ -416,13 +385,11 @@ void loop() {
 
   Serial.println(posture);
 
-
   // ======================================
   // POSTURE TIMER
   // ======================================
 
   unsigned long badDuration = 0;
-
 
   if (posture == "STRAIGHT") {
 
@@ -434,61 +401,41 @@ void loop() {
 
   } else {
 
-    // เริ่มจับเวลา
     if (!badPostureTiming) {
 
       badPostureTiming = true;
 
       badPostureStart = millis();
 
-      Serial.print(
-        "Bad posture detected: "
-      );
+      Serial.print("Bad posture detected: ");
 
       Serial.println(posture);
     }
 
+    badDuration = millis() - badPostureStart;
 
-    // คำนวณเวลาที่อยู่ในท่าผิด
-    badDuration =
-      millis() - badPostureStart;
-
-
-    Serial.print(
-      "Bad posture time: "
-    );
+    Serial.print("Bad posture time: ");
 
     Serial.print(
       badDuration / 1000.0,
       1
     );
 
-    Serial.println(
-      " sec"
-    );
+    Serial.println(" sec");
 
-
-    // ครบ 5 วินาที
-    if (
-      badDuration >= BAD_POSTURE_TIME
-    ) {
+    if (badDuration >= BAD_POSTURE_TIME) {
 
       startAlarm();
     }
   }
 
-
   // ======================================
-  // SEND TO NEXT.JS EVERY 2 SECONDS
+  // SEND TO VERCEL EVERY 2 SECONDS
   // ======================================
 
-  if (
-    millis() - lastSendTime
-    >= SEND_INTERVAL
-  ) {
+  if (millis() - lastSendTime >= SEND_INTERVAL) {
 
     lastSendTime = millis();
-
 
     sendPostureData(
       posture,
@@ -498,7 +445,6 @@ void loop() {
       badDuration
     );
   }
-
 
   // ======================================
   // LOOP DELAY

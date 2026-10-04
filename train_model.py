@@ -1,5 +1,6 @@
 """Train and evaluate the Smart Posture Monitor Random Forest model."""
 
+import json
 from pathlib import Path
 
 import joblib
@@ -17,6 +18,7 @@ from sklearn.model_selection import train_test_split
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR / "posture_data_rows.csv"
 MODEL_PATH = BASE_DIR / "posture_model.joblib"
+DEPLOYMENT_MODEL_PATH = BASE_DIR / "lib" / "posture-model.json"
 FEATURES = ["ax", "ay", "az"]
 CLASSES = ["STRAIGHT", "HUNCHED", "LEAN LEFT", "LEAN RIGHT"]
 RANDOM_STATE = 42
@@ -119,6 +121,27 @@ def main() -> None:
 
     joblib.dump(model, MODEL_PATH)
     print(f"Saved model: {MODEL_PATH}")
+
+    # Vercel serverless functions cannot depend on a persistent local Python
+    # worker. Export the trained forest's tree arrays for native TypeScript
+    # inference while retaining the joblib artifact for local Python use.
+    DEPLOYMENT_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    deployment_model = {
+        "classes": [str(label) for label in model.classes_],
+        "trees": [
+            {
+                "left": tree.tree_.children_left.tolist(),
+                "right": tree.tree_.children_right.tolist(),
+                "feature": tree.tree_.feature.tolist(),
+                "threshold": tree.tree_.threshold.tolist(),
+                "value": tree.tree_.value[:, 0, :].tolist(),
+            }
+            for tree in model.estimators_
+        ],
+    }
+    with DEPLOYMENT_MODEL_PATH.open("w", encoding="utf-8") as output:
+        json.dump(deployment_model, output, separators=(",", ":"))
+    print(f"Saved deployment model: {DEPLOYMENT_MODEL_PATH}")
 
 
 if __name__ == "__main__":

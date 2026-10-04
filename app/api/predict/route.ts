@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { isPostureModelAvailable } from "@/lib/prediction-worker";
-import { predictAndSavePosture } from "@/lib/save-prediction";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,12 +9,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
   "Cache-Control": "no-store, max-age=0",
 };
-const allowedPostures = new Set([
-  "STRAIGHT",
-  "HUNCHED",
-  "LEAN LEFT",
-  "LEAN RIGHT",
-]);
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status, headers: corsHeaders });
@@ -27,9 +19,8 @@ export function OPTIONS() {
 }
 
 export async function POST(request: Request) {
-  if (!isPostureModelAvailable()) {
-    return jsonError("Prediction model posture_model.joblib was not found", 503);
-  }
+  const baseUrl = process.env.PYTHON_API_URL?.replace(/\/+$/, "");
+  if (!baseUrl) return jsonError("Prediction service is not configured", 503);
 
   let body: unknown;
   try {
@@ -38,40 +29,27 @@ export async function POST(request: Request) {
     return jsonError("Request body must be valid JSON", 400);
   }
 
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    return jsonError("Request body must be a JSON object", 400);
-  }
-
-  const input = body as Record<string, unknown>;
-  const values = [input.ax, input.ay, input.az];
-  if (values.some((value) => typeof value !== "number" || !Number.isFinite(value))) {
-    return jsonError("ax, ay, and az are required finite numbers", 400);
-  }
-
-  const sensorPosture = input.sensor_posture ?? input.posture;
-  if (sensorPosture !== undefined &&
-      (typeof sensorPosture !== "string" || !allowedPostures.has(sensorPosture))) {
-    return jsonError("sensor_posture must be a supported posture label", 400);
-  }
-
-  if (input.bad_duration_ms !== undefined &&
-      (typeof input.bad_duration_ms !== "number" ||
-       !Number.isFinite(input.bad_duration_ms) || input.bad_duration_ms < 0)) {
-    return jsonError("bad_duration_ms must be a non-negative finite number", 400);
-  }
-
   try {
-    const result = await predictAndSavePosture(values as [number, number, number]);
-    return NextResponse.json(
-      {
-        posture: result.posture,
-        confidence: result.confidence,
-        ...(sensorPosture ? { sensor_posture: sensorPosture } : {}),
-      },
-      { headers: corsHeaders }
-    );
+    const upstream = await fetch(`${baseUrl}/api/predict`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    const contentType = upstream.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      return jsonError("Prediction service returned an invalid response", 502);
+    }
+    const responseBody = await upstream.json();
+    return NextResponse.json(responseBody, {
+      status: upstream.status,
+      headers: corsHeaders,
+    });
   } catch (error) {
-    console.error("Posture prediction error:", error);
-    return jsonError("Prediction or database save failed", 503);
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return jsonError("Prediction service timed out", 504);
+    }
+    return jsonError("Prediction service is unavailable", 502);
   }
 }
