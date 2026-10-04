@@ -18,9 +18,20 @@ logger = logging.getLogger("posture-api")
 
 Posture = Literal["STRAIGHT", "HUNCHED", "LEAN LEFT", "LEAN RIGHT"]
 FEATURES = ["ax", "ay", "az"]
-DEFAULT_MODEL_PATH = Path(__file__).resolve().parent.parent / "posture_model.joblib"
+DEFAULT_MODEL_PATH = Path(__file__).resolve().parent / "posture_model.joblib"
 
 app = FastAPI(title="Smart Posture Prediction API", version="1.0.0")
+
+
+@app.on_event("startup")
+def report_model_file():
+    model_path = _configured_model_path()
+    logger.info(
+        "Configured model path: %s (exists=%s, is_file=%s)",
+        model_path,
+        model_path.exists(),
+        model_path.is_file(),
+    )
 
 
 class PredictionRequest(BaseModel):
@@ -39,7 +50,7 @@ def _configured_model_path() -> Path:
     configured = Path(os.getenv("MODEL_PATH", "posture_model.joblib")).expanduser()
 
     if not configured.is_absolute():
-        configured = Path(__file__).resolve().parent.parent / configured
+        configured = Path(__file__).resolve().parent / configured
 
     return configured
 
